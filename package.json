@@ -1,0 +1,69 @@
+{
+  "name": "vscode-bm-debug-mcp",
+  "displayName": "Debug MCP Bridge",
+  "description": "Exposes VS Code debugging (any DAP adapter) as MCP tools over HTTP for AI assistants. Breakpoints set through the tools are visible in the editor UI. Includes SEGGER RTT monitoring.",
+  "version": "0.3.5",
+  "publisher": "baremetaltestlab",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BareMetalTestLab/vscode-bm-debug-mcp-extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BareMetalTestLab/vscode-bm-debug-mcp-extension/issues"
+  },
+  "homepage": "https://github.com/BareMetalTestLab/vscode-bm-debug-mcp-extension#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "keywords": [
+    "mcp",
+    "debug",
+    "debugger",
+    "dap",
+    "rtt",
+    "segger",
+    "jlink",
+    "cortex-debug",
+    "embedded",
+    "stm32",
+    "ai",
+    "claude"
+  ],
+  "categories": [
+    "Debuggers",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "debugMcpBridgeProvider",
+        "label": "Debug MCP Bridge"
+      }
+    ],
+    "commands": [
+      {
+        "command": "debugMcpBridge.showStatus",
+        "title": "Debug MCP Bridge: Show Status"
+      },
+      {
+        "command": "debugMcpBridge.registerClaude",
+        "title": "Debug MCP Bridge: Register in Claude Code (project .mcp.json)"
+      }
+    ],
+    "configuration": {
+      "title": "Debug MCP Bridge",
+      "properties": {
+        "debugMcpBridge.port": {
+          "type": "number",
+          "default": 7777,
+          "description": "Local HTTP port for the MCP server (Streamable HTTP at /mcp)"
+        }
+      }
+    }
+  }
+}
