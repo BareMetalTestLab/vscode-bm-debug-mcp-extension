@@ -8,7 +8,7 @@ const http = require('http');
 const net = require('net');
 const { exec } = require('child_process');
 
-const SERVER_INFO = { name: 'vscode-debug-mcp', version: '0.3.5' };
+const SERVER_INFO = { name: 'vscode-debug-mcp', version: '1.0.0' };
 
 /** @type {http.Server|null} */
 let server = null;
