@@ -2,11 +2,14 @@ name: Publish
 
 # Publishing is triggered by pushing a version tag:
 #   git tag v0.3.5 && git push origin v0.3.5
-# Required repo secrets:
-#   VSCE_PAT — Azure DevOps PAT with Marketplace > Manage scope
-#              (publisher id must match package.json: baremetaltestlab)
-#   OVSX_PAT — optional, token from open-vsx.org; the Open VSX job
-#              is skipped when the secret is not set
+#
+# Marketplace auth uses the GitHub Actions OIDC flow: the workflow is
+# registered on the publisher page (marketplace.visualstudio.com →
+# publisher → "Release workflow": this repo + this file). No PAT needed —
+# the job just needs `permissions: id-token: write` and vsce >= 3.3.
+#
+# Open VSX has no OIDC support and still needs the OVSX_PAT repo secret;
+# that job is skipped when the secret is not set.
 on:
   push:
     tags: ['v*']
@@ -15,16 +18,13 @@ jobs:
   marketplace:
     name: VS Code Marketplace
     runs-on: ubuntu-latest
-    # Skip (instead of failing) when the token is not configured yet —
-    # e.g. on the push that introduces this workflow file.
-    if: ${{ secrets.VSCE_PAT != '' }}
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - uses: HaaLeo/publish-vscode-extension@v1
-        with:
-          pat: ${{ secrets.VSCE_PAT }}
-          noDependencies: true
+      - name: Publish (OIDC, no PAT)
+        run: npx --yes @vscode/vsce@latest publish --no-dependencies
 
   open-vsx:
     name: Open VSX

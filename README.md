@@ -34,12 +34,14 @@ server on `127.0.0.1:<project port>`.
   ```
 
   One-time setup:
-  1. Create the publisher `baremetaltestlab` on the Marketplace
-     (Azure DevOps organization → Personal Access Token with the
-     **Marketplace → Manage** scope).
-  2. Add the PAT as the `VSCE_PAT` repository secret.
+  1. Create the publisher `baremetaltestlab` on the Marketplace.
+  2. Connect the release workflow: marketplace.visualstudio.com →
+     your publisher → **Release workflow** → add this repository and
+     `publish.yml`. Publishing then authenticates via GitHub Actions
+     OIDC — **no Personal Access Token needed**.
   3. (Optional) Get a token at open-vsx.org and add it as `OVSX_PAT` —
-     the Open VSX job runs only when the secret exists.
+     the Open VSX job runs only when the secret exists (Open VSX has
+     no OIDC support).
 
 **One port per project**, and exactly **one file** per project:
 `.mcp.json` in the root. It serves both as the agent registration (Claude
