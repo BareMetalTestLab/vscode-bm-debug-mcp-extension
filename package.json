@@ -3,7 +3,7 @@
   "displayName": "Debug MCP Bridge",
   "description": "Exposes VS Code debugging (any DAP adapter) as MCP tools over HTTP for AI assistants. Breakpoints set through the tools are visible in the editor UI. Includes SEGGER RTT monitoring.",
   "version": "1.0.0",
-  "publisher": "baremetaltestlab",
+  "publisher": "BareMetalTestLab",
   "license": "MIT",
   "repository": {
     "type": "git",
