@@ -1,0 +1,37 @@
+name: Publish
+
+# Publishing is triggered by pushing a version tag:
+#   git tag v0.3.5 && git push origin v0.3.5
+# Required repo secrets:
+#   VSCE_PAT — Azure DevOps PAT with Marketplace > Manage scope
+#              (publisher id must match package.json: baremetaltestlab)
+#   OVSX_PAT — optional, token from open-vsx.org; the Open VSX job
+#              is skipped when the secret is not set
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  marketplace:
+    name: VS Code Marketplace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: HaaLeo/publish-vscode-extension@v1
+        with:
+          pat: ${{ secrets.VSCE_PAT }}
+          noDependencies: true
+
+  open-vsx:
+    name: Open VSX
+    runs-on: ubuntu-latest
+    if: ${{ secrets.OVSX_PAT != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: HaaLeo/publish-vscode-extension@v1
+        with:
+          pat: ${{ secrets.OVSX_PAT }}
+          registryUrl: https://open-vsx.org
+          noDependencies: true

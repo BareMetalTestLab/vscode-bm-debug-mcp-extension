@@ -1,5 +1,7 @@
 # Debug MCP Bridge (vscode-debug-mcp)
 
+[![CI](https://github.com/BareMetalTestLab/vscode-bm-debug-mcp-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/BareMetalTestLab/vscode-bm-debug-mcp-extension/actions/workflows/ci.yml)
+
 A VS Code extension that exposes the VS Code debugger (any DAP adapter:
 cortex-debug, cppdbg, node, python — anything) as MCP tools over HTTP.
 It lets an AI assistant (Claude Code and the like) drive debugging while
@@ -18,6 +20,26 @@ cp -R /path/to/vscode-debug-mcp/{package.json,extension.js,README.md} \
 
 Restart VS Code. The extension activates on startup and starts an HTTP
 server on `127.0.0.1:<project port>`.
+
+## CI & publishing
+
+- **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and on
+  PRs: syntax check + VSIX packaging; the VSIX is uploaded as a build
+  artifact.
+- **Publish** (`.github/workflows/publish.yml`) is triggered by a version
+  tag and pushes to the VS Code Marketplace (and Open VSX when configured):
+
+  ```bash
+  git tag v0.3.5 && git push origin v0.3.5
+  ```
+
+  One-time setup:
+  1. Create the publisher `baremetaltestlab` on the Marketplace
+     (Azure DevOps organization → Personal Access Token with the
+     **Marketplace → Manage** scope).
+  2. Add the PAT as the `VSCE_PAT` repository secret.
+  3. (Optional) Get a token at open-vsx.org and add it as `OVSX_PAT` —
+     the Open VSX job runs only when the secret exists.
 
 **One port per project**, and exactly **one file** per project:
 `.mcp.json` in the root. It serves both as the agent registration (Claude
