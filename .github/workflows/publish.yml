@@ -1,15 +1,16 @@
 name: Publish
 
 # Publishing is triggered by pushing a version tag:
-#   git tag v0.3.5 && git push origin v0.3.5
+#   git tag v1.0.0 && git push origin v1.0.0
 #
 # Marketplace auth uses the GitHub Actions OIDC flow: the workflow is
 # registered on the publisher page (marketplace.visualstudio.com →
 # publisher → "Release workflow": this repo + this file). No PAT needed —
-# the job just needs `permissions: id-token: write` and vsce >= 3.3.
+# the job needs `permissions: id-token: write` and vsce >= 3.3.
 #
-# Open VSX has no OIDC support and still needs the OVSX_PAT repo secret;
-# that job is skipped when the secret is not set.
+# Open VSX has no OIDC support and needs the OVSX_PAT repo secret. NOTE:
+# the `secrets` context is not allowed in job-level `if`, so the check
+# lives in step-level conditions via env.
 on:
   push:
     tags: ['v*']
@@ -29,12 +30,20 @@ jobs:
   open-vsx:
     name: Open VSX
     runs-on: ubuntu-latest
-    if: ${{ secrets.OVSX_PAT != '' }}
+    env:
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
+        if: env.OVSX_PAT != ''
 
-      - uses: HaaLeo/publish-vscode-extension@v1
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        uses: HaaLeo/publish-vscode-extension@v1
         with:
           pat: ${{ secrets.OVSX_PAT }}
           registryUrl: https://open-vsx.org
           noDependencies: true
+
+      - name: Skipped (no OVSX_PAT)
+        if: env.OVSX_PAT == ''
+        run: echo 'OVSX_PAT is not configured — Open VSX publish skipped'
