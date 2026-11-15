@@ -3,10 +3,13 @@ name: Publish
 # Publishing is triggered by pushing a version tag:
 #   git tag v1.0.0 && git push origin v1.0.0
 #
-# Marketplace auth uses the GitHub Actions OIDC flow: the workflow is
+# Marketplace auth uses Trusted Publishing: the GitHub Actions OIDC flow
 # registered on the publisher page (marketplace.visualstudio.com →
-# publisher → "Release workflow": this repo + this file). No PAT needed —
-# the job needs `permissions: id-token: write` and vsce >= 3.3.
+# publisher → Trusted Publishing: this repo + this file). No PAT needed —
+# the job requires `permissions: id-token: write` and the `--oidc` flag:
+# without the flag vsce silently falls back to PAT auth and fails.
+# `npm ci` from the docs recipe is skipped on purpose: the extension has
+# no dependencies and no package-lock.json.
 #
 # Open VSX has no OIDC support and needs the OVSX_PAT repo secret. NOTE:
 # the `secrets` context is not allowed in job-level `if`, so the check
@@ -20,12 +23,17 @@ jobs:
     name: VS Code Marketplace
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Publish (OIDC, no PAT)
-        run: npx --yes @vscode/vsce@latest publish --no-dependencies
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Publish (Trusted Publishing OIDC)
+        run: npx --yes @vscode/vsce@latest publish --no-dependencies --oidc
 
   open-vsx:
     name: Open VSX

@@ -152,8 +152,9 @@ RTT terminal occupies it, restart the session. For other servers use
 - **CI** runs on every push to `main` and on PRs: syntax check + VSIX
   packaging, the VSIX is uploaded as an artifact.
 - **Publish** is triggered by a version tag and ships to the VS Code
-  Marketplace via the GitHub Actions OIDC flow (the workflow is registered
-  on the publisher page under *Release workflow* — no PAT needed):
+  Marketplace via Trusted Publishing — the GitHub Actions OIDC flow (the
+  workflow is registered on the publisher page under *Trusted Publishing* —
+  no PAT needed):
 
   ```bash
   git tag v0.3.5 && git push origin v0.3.5
