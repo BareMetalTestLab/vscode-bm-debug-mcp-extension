@@ -1,4 +1,4 @@
-// Debug MCP Bridge — VS Code debugging as MCP tools over HTTP.
+// Bare Metal Debug MCP — VS Code debugging as MCP tools over HTTP.
 // Zero dependencies: plain Node http server (MCP Streamable HTTP) +
 // vscode.debug API + raw DAP requests via DebugSession.customRequest().
 'use strict';
@@ -911,7 +911,7 @@ async function handleRequest(req, res) {
 
     if (!isMcp) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Debug MCP Bridge. POST MCP messages to /mcp');
+      res.end('Bare Metal Debug MCP. POST MCP messages to /mcp');
       return;
     }
 
@@ -1191,7 +1191,7 @@ function activate(context) {
     if (vscode.lm && vscode.lm.registerMcpServerDefinitionProvider) {
       const provider = {
         provideMcpServerDefinitions: () => [
-          new vscode.McpHttpServerDefinition('Debug MCP Bridge', vscode.Uri.parse(`http://127.0.0.1:${port}/mcp`)),
+          new vscode.McpHttpServerDefinition('Bare Metal Debug MCP', vscode.Uri.parse(`http://127.0.0.1:${port}/mcp`)),
         ],
       };
       context.subscriptions.push(
@@ -1243,23 +1243,23 @@ function activate(context) {
         .map((s) => `${s.name}: ${s.stopped ? 'stopped' : 'running'}`)
         .join('\n');
       vscode.window.showInformationMessage(
-        `Debug MCP Bridge: http://127.0.0.1:${bridgePort}/mcp\n${list || 'No debug sessions.'}`
+        `Bare Metal Debug MCP: http://127.0.0.1:${bridgePort}/mcp\n${list || 'No debug sessions.'}`
       );
     }),
     vscode.commands.registerCommand('debugMcpBridge.registerClaude', async () => {
       const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
       if (!folder) {
-        vscode.window.showErrorMessage('Debug MCP Bridge: open a folder first');
+        vscode.window.showErrorMessage('Bare Metal Debug MCP: open a folder first');
         return;
       }
       try {
         await syncAgentConfigs(folder, bridgePort);
         await markRegistered(folder);
         vscode.window.showInformationMessage(
-          `Debug MCP Bridge registered in ${folder.name}/.mcp.json → http://127.0.0.1:${bridgePort}/mcp`
+          `Bare Metal Debug MCP registered in ${folder.name}/.mcp.json → http://127.0.0.1:${bridgePort}/mcp`
         );
       } catch (e) {
-        vscode.window.showErrorMessage(`Debug MCP Bridge: registration failed: ${e.message}`);
+        vscode.window.showErrorMessage(`Bare Metal Debug MCP: registration failed: ${e.message}`);
       }
     })
   );
@@ -1275,16 +1275,16 @@ function startServer(port) {
     s.once('error', (e) => {
       if (e.code === 'EADDRINUSE') {
         vscode.window.setStatusBarMessage(
-          `Debug MCP Bridge: port ${port} served by another window, will retry`, 10000
+          `Bare Metal Debug MCP: port ${port} served by another window, will retry`, 10000
         );
         setTimeout(tryListen, 10000);
         return;
       }
-      vscode.window.showErrorMessage(`Debug MCP Bridge failed to listen on port ${port}: ${e.message}`);
+      vscode.window.showErrorMessage(`Bare Metal Debug MCP failed to listen on port ${port}: ${e.message}`);
     });
     s.listen(port, '127.0.0.1', () => {
       server = s;
-      vscode.window.setStatusBarMessage(`Debug MCP Bridge: 127.0.0.1:${port}/mcp`, 15000);
+      vscode.window.setStatusBarMessage(`Bare Metal Debug MCP: 127.0.0.1:${port}/mcp`, 15000);
     });
   };
   tryListen();

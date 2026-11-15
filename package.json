@@ -1,6 +1,6 @@
 {
   "name": "vscode-bm-debug-mcp",
-  "displayName": "Debug MCP Bridge",
+  "displayName": "Bare Metal Debug MCP",
   "description": "Exposes VS Code debugging (any DAP adapter) as MCP tools over HTTP for AI assistants. Breakpoints set through the tools are visible in the editor UI. Includes SEGGER RTT monitoring.",
   "version": "1.0.0",
   "publisher": "BareMetalTestLab",
@@ -43,21 +43,21 @@
     "mcpServerDefinitionProviders": [
       {
         "id": "debugMcpBridgeProvider",
-        "label": "Debug MCP Bridge"
+        "label": "Bare Metal Debug MCP"
       }
     ],
     "commands": [
       {
         "command": "debugMcpBridge.showStatus",
-        "title": "Debug MCP Bridge: Show Status"
+        "title": "Bare Metal Debug MCP: Show Status"
       },
       {
         "command": "debugMcpBridge.registerClaude",
-        "title": "Debug MCP Bridge: Register in Claude Code (project .mcp.json)"
+        "title": "Bare Metal Debug MCP: Register in Claude Code (project .mcp.json)"
       }
     ],
     "configuration": {
-      "title": "Debug MCP Bridge",
+      "title": "Bare Metal Debug MCP",
       "properties": {
         "debugMcpBridge.port": {
           "type": "number",

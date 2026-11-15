@@ -1,4 +1,4 @@
-# Debug MCP Bridge
+# Bare Metal Debug MCP
 
 [![CI](https://github.com/BareMetalTestLab/vscode-bm-debug-mcp-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/BareMetalTestLab/vscode-bm-debug-mcp-extension/actions/workflows/ci.yml)
 
@@ -53,7 +53,7 @@ cp -R package.json extension.js README.md media \
 ```
 
 Reload VS Code — the status bar shows the bridge URL
-(`Debug MCP Bridge: 127.0.0.1:<port>/mcp`).
+(`Bare Metal Debug MCP: 127.0.0.1:<port>/mcp`).
 
 ## Quick start
 
@@ -75,7 +75,7 @@ picks the tools up automatically.
 The file is created automatically for projects that use `cortex-debug`
 configs (its presence counts as consent); **deleting it opts the project
 out permanently**. To register any project explicitly, run
-**Debug MCP Bridge: Register in Claude Code (project .mcp.json)** from the
+**Bare Metal Debug MCP: Register in Claude Code (project .mcp.json)** from the
 Command Palette.
 
 ## Tools
