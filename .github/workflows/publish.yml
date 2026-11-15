@@ -15,6 +15,9 @@ jobs:
   marketplace:
     name: VS Code Marketplace
     runs-on: ubuntu-latest
+    # Skip (instead of failing) when the token is not configured yet —
+    # e.g. on the push that introduces this workflow file.
+    if: ${{ secrets.VSCE_PAT != '' }}
     steps:
       - uses: actions/checkout@v4
 
