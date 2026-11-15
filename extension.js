@@ -1023,10 +1023,10 @@ function isFreePort(port) {
   });
 }
 
-// .mcp.json at the project root is the ONLY file we write: Claude Code reads
-// it natively, and our port persists in it (mcpServers."debug-bridge".url).
-// settings.json is never used — project scripts may regenerate it; neither is
-// .codex/config.toml — other extensions (SiLabs) own sections there.
+// .mcp.json at the project root is the ONLY file we write in the user's
+// project: Claude Code reads it natively, and our port persists in it
+// (mcpServers."debug-bridge".url). settings.json and other tools' config
+// files are never touched.
 
 /**
  * Registration policy: .mcp.json is auto-created only for projects that look

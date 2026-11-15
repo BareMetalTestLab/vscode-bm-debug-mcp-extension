@@ -38,6 +38,7 @@
     "onStartupFinished"
   ],
   "main": "./extension.js",
+  "icon": "media/icon.png",
   "contributes": {
     "mcpServerDefinitionProviders": [
       {
