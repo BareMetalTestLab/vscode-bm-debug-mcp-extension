@@ -132,7 +132,16 @@ The only file the extension ever creates in your projects is `.mcp.json`.
 to port 19021 (channel N on 19021+N); override with the `rttPort` field of
 the launch config. The RTT telnet port accepts a single client — if another
 RTT terminal occupies it, restart the session. For other servers use
-`debug_rtt_connect {port}`.
+`debug_rtt_connect {port}`. Everything the agent reads or sends is mirrored
+live into an **Output view** (`RTT — <project>`) — the bridge holds the
+single RTT client slot, so this view is how *you* watch the logs and the
+agent's target-CLI input (`» ...`) alongside the agent.
+
+> **Stale data after re-flash.** Target RAM survives debug resets, so the
+> RTT buffer may still hold unread output of the *previous* firmware right
+> after a re-flash or reset. Anything already buffered at the main-entry
+> stop predates the current boot — read-and-discard it; logs of the new
+> firmware start from the boot after that point.
 
 ## Behavior notes
 

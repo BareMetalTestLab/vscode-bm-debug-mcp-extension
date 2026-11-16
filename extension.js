@@ -8,7 +8,8 @@ const http = require('http');
 const net = require('net');
 const { exec } = require('child_process');
 
-const SERVER_INFO = { name: 'vscode-debug-mcp', version: '1.0.0' };
+// Single source of truth for the version is package.json.
+const SERVER_INFO = { name: 'vscode-debug-mcp', version: require('./package.json').version };
 
 /** @type {http.Server|null} */
 let server = null;
@@ -199,7 +200,7 @@ function substituteVars(value, folderPath, launchInputs, note) {
           return String(inp.default);
         }
         throw new Error(
-          `Config needs \${input:${id}} which is interactive and has no default — pass an inline config instead`
+          `Config needs \${input:${id}} which is interactive and has no default — pass that key in the config argument of debug_start instead`
         );
       });
   }
@@ -215,9 +216,12 @@ function substituteVars(value, folderPath, launchInputs, note) {
   return value;
 }
 
-/** Resolves a named configuration with variables substituted.
+/** Resolves a named configuration with variables substituted. `overrides` are
+ *  merged in BEFORE substitution, so they win over ${input:*} defaults and
+ *  may themselves carry ${workspaceFolder}-style vars. Top-level only: an
+ *  override replaces the whole subtree of that key.
  *  @returns {{cfg: object, inputsUsed: string[]}} */
-async function resolveNamedConfig(folder, configName) {
+async function resolveNamedConfig(folder, configName, overrides) {
   const uri = vscode.Uri.joinPath(folder.uri, '.vscode', 'launch.json');
   let raw;
   try {
@@ -231,13 +235,27 @@ async function resolveNamedConfig(folder, configName) {
   } catch (e) {
     throw new Error(`launch.json is not valid JSONC: ${e.message}`);
   }
-  const cfg = (doc.configurations || []).find((c) => c && c.name === configName);
-  if (!cfg) {
+  const found = (doc.configurations || []).find((c) => c && c.name === configName);
+  if (!found) {
     throw new Error(`Configuration "${configName}" not found in ${uri.fsPath}`);
   }
+  const merged = { ...JSON.parse(JSON.stringify(found)), ...overrides };
   const note = { inputsUsed: [] };
-  const resolved = substituteVars(JSON.parse(JSON.stringify(cfg)), folder.uri.fsPath, doc.inputs || [], note);
+  const resolved = substituteVars(merged, folder.uri.fsPath, doc.inputs || [], note);
   return { cfg: resolved, inputsUsed: note.inputsUsed };
+}
+
+/** Configuration names only — lets agents pick a configName without reading launch.json. */
+async function launchConfigNames(folder) {
+  try {
+    const raw = Buffer.from(
+      await vscode.workspace.fs.readFile(vscode.Uri.joinPath(folder.uri, '.vscode', 'launch.json'))
+    ).toString('utf8');
+    const doc = JSON.parse(stripTrailingCommas(stripJsonComments(raw)));
+    return (doc.configurations || []).filter((c) => c && c.name).map((c) => c.name);
+  } catch (_) {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +268,30 @@ async function resolveNamedConfig(folder, configName) {
 // the same slot.
 const RTT_DEFAULT_PORT = 19021;
 const RTT_BUF_CAP = 256 * 1024; // per channel
+
+// The bridge occupies the single RTT telnet client slot, so cortex-debug's
+// own RTT terminal cannot show the logs. Mirror everything the agent sees
+// (and sends) into an Output view instead. Views are keyed by label and
+// never disposed — history survives session restarts and stops.
+const rttViews = new Map(); // label -> vscode.OutputChannel
+
+function rttView(info, rttChannel) {
+  const s = info.session;
+  const label =
+    'RTT — ' +
+    ((s && s.workspaceFolder && s.workspaceFolder.name) || (s && s.name) || 'session') +
+    (rttChannel ? ` ch${rttChannel}` : '');
+  let view = rttViews.get(label);
+  if (!view) {
+    view = vscode.window.createOutputChannel(label);
+    rttViews.set(label, view);
+  }
+  return view;
+}
+
+function ansiStrip(s) {
+  return s.replace(/\x1b\[[0-9;]*m/g, '');
+}
 
 function rttCleanup(sessionId) {
   const info = sessions.get(sessionId);
@@ -285,13 +327,16 @@ function rttConnect(info, port, channel) {
         info.rtt = { port, chans: new Map() };
       }
       info.rtt.chans.set(channel, st);
+      rttView(info, channel).show(true); // reveal the mirror without stealing focus
       resolve(`RTT channel ${channel} ← 127.0.0.1:${port}`);
     });
     sock.on('data', (d) => {
-      st.buf += d.toString('utf8');
+      const s = d.toString('utf8');
+      st.buf += s;
       if (st.buf.length > RTT_BUF_CAP) {
         st.buf = st.buf.slice(-RTT_BUF_CAP);
       }
+      rttView(info, channel).append(ansiStrip(s).replace(/\r\n/g, '\n'));
     });
     sock.on('error', (e) => {
       try {
@@ -334,13 +379,13 @@ function rttAutoConnect(info, port, channel) {
 const tools = [
   {
     name: 'debug_start',
-    description: 'Start a VS Code debug session. Either pass configName (a launch.json configuration name) or a full inline config (type, request, executable, ...). Everything happens inside VS Code, so the user sees the debug UI.',
+    description: 'Start a VS Code debug session. Pass configName (a launch.json configuration name); optional config keys then override the resolved values (e.g. ipAddress for a different board). Or pass a full inline config (type, request, executable, ...) without configName. Everything happens inside VS Code, so the user sees the debug UI.',
     inputSchema: {
       type: 'object',
       properties: {
         configName: { type: 'string', description: 'Name of a configuration from launch.json' },
         folder: { type: 'string', description: 'Optional workspace folder path to resolve configName in' },
-        config: { type: 'object', description: 'Inline DebugConfiguration (used as-is, e.g. cortex-debug settings)' },
+        config: { type: 'object', description: 'With configName: top-level overrides merged over the resolved launch.json config (each key replaces its whole subtree). Without configName: the full inline DebugConfiguration, used as-is.' },
       },
     },
     async run(args) {
@@ -364,10 +409,17 @@ const tools = [
         // A bare {name} that fails to resolve makes VS Code pop the
         // interactive "select debugger" picker instead of erroring out —
         // unusable from an MCP client.
-        const r = await resolveNamedConfig(folder, args.configName);
+        const r = await resolveNamedConfig(folder, args.configName, args.config);
         cfg = r.cfg;
+        const notes = [];
+        if (args.config) {
+          notes.push(`overrides: ${Object.keys(args.config).join(', ')}`);
+        }
         if (r.inputsUsed.length) {
-          inputNote = ` (input defaults: ${r.inputsUsed.join(', ')})`;
+          notes.push(`input defaults: ${r.inputsUsed.join(', ')}`);
+        }
+        if (notes.length) {
+          inputNote = ` (${notes.join('; ')})`;
         }
       } else if (args.config) {
         cfg = args.config;
@@ -446,7 +498,8 @@ const tools = [
 
   {
     name: 'debug_status',
-    description: 'List debug sessions and their state (running/stopped, stop reason).',
+    description:
+      'List debug sessions, their state (running/stopped, stop reason) and the available launch.json configurations. Entry point: call this before debug_start to pick a configName.',
     inputSchema: { type: 'object', properties: {} },
     async run() {
       const lines = [];
@@ -466,8 +519,14 @@ const tools = [
         }
         lines.push(line);
       }
+      for (const f of vscode.workspace.workspaceFolders || []) {
+        const names = await launchConfigNames(f);
+        if (names.length) {
+          lines.push(`launch configs in ${f.name}: ${names.map((n) => `"${n}"`).join(', ')}`);
+        }
+      }
       if (lines.length === 0) {
-        return 'No debug sessions.';
+        return 'No debug sessions, no launch.json configurations.';
       }
       return lines.join('\n');
     },
@@ -767,7 +826,7 @@ const tools = [
   {
     name: 'debug_rtt_read',
     description:
-      'Read captured SEGGER RTT output. Draining by default (returns text since the last read); pass peek: true to keep the buffer. CRLF is normalized to LF.',
+      'Read captured SEGGER RTT output. Draining by default (returns text since the last read); pass peek: true to keep the buffer. CRLF is normalized to LF. Stale-data caveat: target RAM survives debug resets, so right after a re-flash or reset the buffer may still hold unread output of the PREVIOUS firmware — anything already buffered at the main-entry stop predates the current boot and must be ignored (read-and-discard it), not treated as logs of the new firmware.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -797,7 +856,7 @@ const tools = [
         text = `[... truncated ${text.length - 32000} chars]\n` + text.slice(-32000);
       }
       if (!args.raw) {
-        text = text.replace(/\x1b\[[0-9;]*m/g, ''); // ANSI color codes
+        text = ansiStrip(text);
       }
       return text.replace(/\r\n/g, '\n');
     },
@@ -824,6 +883,7 @@ const tools = [
         throw new Error(`RTT channel ${channel} is not connected`);
       }
       st.sock.write(args.text);
+      rttView(info, channel).append(`» ${args.text.replace(/\n+$/, '')}\n`);
       return `Sent ${args.text.length} chars → RTT down-buffer ${channel}.`;
     },
   },
@@ -861,7 +921,21 @@ async function dispatch(msg) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER_INFO,
       instructions:
-        'Tools control VS Code debugging sessions (any DAP adapter). Start with debug_start (configName from launch.json), then debug_set_breakpoints, debug_continue/pause/step, debug_stack + debug_variables + debug_evaluate.',
+        'VS Code debugging exposed as tools — the session, editor breakpoints and the ' +
+        'RTT Output view are all visible to the user. Do NOT read .vscode/launch.json and ' +
+        'do NOT run gdb/openocd/JLinkGDBServer yourself: call debug_status first — it lists ' +
+        'the available launch configurations; pass one as configName to debug_start (add the ' +
+        'folder argument in multi-root windows), and put per-run overrides (e.g. ipAddress) ' +
+        'in the config argument — they win over launch.json values and ${input:*} defaults. ' +
+        'debug_start returns fast; the GDB server and ' +
+        'flashing continue in the background — poll debug_status until the session appears. ' +
+        'Then debug_set_breakpoints / debug_continue / debug_pause / debug_step, inspect via ' +
+        'debug_stack + debug_variables + debug_evaluate. SEGGER RTT auto-connects for jlink ' +
+        'sessions: debug_rtt_read drains target logs (poll it), debug_rtt_write types into a ' +
+        'target-side CLI. Target RAM survives debug resets: right after a re-flash or reset, ' +
+        'unread output of the PREVIOUS firmware may arrive first — data buffered before the ' +
+        'current boot (e.g. already present at the main-entry stop) is stale: discard it. ' +
+        'Finish with debug_stop.',
     };
   }
 
@@ -1297,4 +1371,5 @@ function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate };
+// __test: for out-of-tree harnesses only; VS Code calls activate/deactivate.
+module.exports = { activate, deactivate, __test: { resolveNamedConfig } };

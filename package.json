@@ -2,7 +2,7 @@
   "name": "vscode-bm-debug-mcp",
   "displayName": "Bare Metal Debug MCP",
   "description": "Exposes VS Code debugging (any DAP adapter) as MCP tools over HTTP for AI assistants. Breakpoints set through the tools are visible in the editor UI. Includes SEGGER RTT monitoring.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "BareMetalTestLab",
   "license": "MIT",
   "repository": {
