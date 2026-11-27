@@ -245,14 +245,22 @@ async function resolveNamedConfig(folder, configName, overrides) {
   return { cfg: resolved, inputsUsed: note.inputsUsed };
 }
 
-/** Configuration names only — lets agents pick a configName without reading launch.json. */
-async function launchConfigNames(folder) {
+/** Configuration summaries — lets agents pick a configName without reading
+ *  launch.json. request 'launch' = build (preLaunchTask) + flash the target,
+ *  'attach' = connect to the running target without building or flashing. */
+async function launchConfigs(folder) {
   try {
     const raw = Buffer.from(
       await vscode.workspace.fs.readFile(vscode.Uri.joinPath(folder.uri, '.vscode', 'launch.json'))
     ).toString('utf8');
     const doc = JSON.parse(stripTrailingCommas(stripJsonComments(raw)));
-    return (doc.configurations || []).filter((c) => c && c.name).map((c) => c.name);
+    return (doc.configurations || [])
+      .filter((c) => c && c.name)
+      .map((c) => ({
+        name: c.name,
+        request: c.request === 'attach' ? 'attach' : 'launch',
+        preLaunchTask: typeof c.preLaunchTask === 'string' ? c.preLaunchTask : null,
+      }));
   } catch (_) {
     return [];
   }
@@ -379,13 +387,15 @@ function rttAutoConnect(info, port, channel) {
 const tools = [
   {
     name: 'debug_start',
-    description: 'Start a VS Code debug session. Pass configName (a launch.json configuration name); optional config keys then override the resolved values (e.g. ipAddress for a different board). Or pass a full inline config (type, request, executable, ...) without configName. Everything happens inside VS Code, so the user sees the debug UI.',
+    description:
+      'Start a VS Code debug session. Pass configName (a launch.json configuration name); optional config keys then override the resolved values (e.g. ipAddress for a different board). Or pass a full inline config (type, request, executable, ...) without configName. Everything happens inside VS Code, so the user sees the debug UI. Default flow is build + flash: launch-type configurations rebuild the project (preLaunchTask) and the adapter flashes the target; attach-type ones are refused unless you pass attach: true — for when the user explicitly wants to debug the firmware already on the target.',
     inputSchema: {
       type: 'object',
       properties: {
         configName: { type: 'string', description: 'Name of a configuration from launch.json' },
         folder: { type: 'string', description: 'Optional workspace folder path to resolve configName in' },
         config: { type: 'object', description: 'With configName: top-level overrides merged over the resolved launch.json config (each key replaces its whole subtree). Without configName: the full inline DebugConfiguration, used as-is.' },
+        attach: { type: 'boolean', description: 'Opt into an attach-only session: no build, no flash. Set only when the user explicitly wants to debug the firmware already on the target.' },
       },
     },
     async run(args) {
@@ -400,6 +410,7 @@ const tools = [
         folder = vscode.workspace.workspaceFolders[0];
       }
       let cfg;
+      let inputsUsed = [];
       let inputNote = '';
       if (args.configName) {
         if (!folder) {
@@ -411,16 +422,7 @@ const tools = [
         // unusable from an MCP client.
         const r = await resolveNamedConfig(folder, args.configName, args.config);
         cfg = r.cfg;
-        const notes = [];
-        if (args.config) {
-          notes.push(`overrides: ${Object.keys(args.config).join(', ')}`);
-        }
-        if (r.inputsUsed.length) {
-          notes.push(`input defaults: ${r.inputsUsed.join(', ')}`);
-        }
-        if (notes.length) {
-          inputNote = ` (${notes.join('; ')})`;
-        }
+        inputsUsed = r.inputsUsed;
       } else if (args.config) {
         cfg = args.config;
         if (!cfg.name) {
@@ -428,6 +430,35 @@ const tools = [
         }
       } else {
         throw new Error('Pass either configName or config');
+      }
+      // Attach is opt-in. The default agent workflow is build + flash: a
+      // 'launch' config rebuilds the project via preLaunchTask and the
+      // adapter programs the target. Quietly attaching instead leaves
+      // whatever stale firmware is on the chip running.
+      if (cfg.request === 'attach' && !args.attach) {
+        const alts = folder
+          ? (await launchConfigs(folder))
+              .filter((c) => c.request !== 'attach')
+              .map((c) => `"${c.name}"`)
+          : [];
+        throw new Error(
+          `"${cfg.name}" only attaches — no build, no flash. The default is to build + flash the target` +
+            (alts.length ? ` (launch configs here: ${alts.join(', ')})` : '') +
+            '. Pass attach: true only if the user explicitly wants to debug the firmware already on the target.'
+        );
+      }
+      const notes = [];
+      if (args.configName && args.config) {
+        notes.push(`overrides: ${Object.keys(args.config).join(', ')}`);
+      }
+      if (inputsUsed.length) {
+        notes.push(`input defaults: ${inputsUsed.join(', ')}`);
+      }
+      if (cfg.request !== 'attach' && !cfg.preLaunchTask) {
+        notes.push('no preLaunchTask — flashed without rebuilding (set config.preLaunchTask to a build task)');
+      }
+      if (notes.length) {
+        inputNote = ` (${notes.join('; ')})`;
       }
       // Do NOT await the full launch: embedded launches (JLink GDB server,
       // flashing, runToEntryPoint) routinely take longer than MCP client
@@ -475,7 +506,11 @@ const tools = [
               rttAutoConnect(info, port, c);
             }
           }
-          return `Debug session "${cfg.name}" started${info.stopped ? ` — stopped (${info.stopReason})` : ''}.${inputNote}`;
+          return `Debug session "${cfg.name}" started${
+            info.stopped
+              ? ` — STOPPED (${info.stopReason || 'unknown'}): the target is halted (typically the main entry point); it executes and logs NOTHING until you call debug_continue`
+              : ''
+          }.${inputNote}`;
         }
       }
       return `Debug launch "${cfg.name}" still in progress (server + flashing can take a while). Poll debug_status.${inputNote}`;
@@ -499,7 +534,7 @@ const tools = [
   {
     name: 'debug_status',
     description:
-      'List debug sessions, their state (running/stopped, stop reason) and the available launch.json configurations. Entry point: call this before debug_start to pick a configName.',
+      'List debug sessions, their state (running/stopped, stop reason) and the available launch.json configurations, annotated with what each does: launch = build (preLaunchTask) + flash, attach = connect to the running target as-is. Entry point: call this before debug_start to pick a configName.',
     inputSchema: { type: 'object', properties: {} },
     async run() {
       const lines = [];
@@ -511,7 +546,11 @@ const tools = [
         }
       }
       for (const [id, info] of sessions) {
-        let line = `[${id}] "${info.name}" — ${info.stopped ? `STOPPED (${info.stopReason || 'unknown'})` : 'running'}`;
+        let line = `[${id}] "${info.name}" — ${
+          info.stopped
+            ? `STOPPED (${info.stopReason || 'unknown'}) — not executing, logs nothing; debug_continue to resume`
+            : 'running'
+        }`;
         if (info.rtt && info.rtt.chans.size) {
           line +=
             ' | rtt ' +
@@ -520,9 +559,19 @@ const tools = [
         lines.push(line);
       }
       for (const f of vscode.workspace.workspaceFolders || []) {
-        const names = await launchConfigNames(f);
-        if (names.length) {
-          lines.push(`launch configs in ${f.name}: ${names.map((n) => `"${n}"`).join(', ')}`);
+        const cfgs = await launchConfigs(f);
+        if (cfgs.length) {
+          lines.push(`launch configs in ${f.name}:`);
+          for (const c of cfgs) {
+            lines.push(
+              c.request === 'attach'
+                ? `  "${c.name}" — attach only: no build, no flash (needs debug_start attach:true)`
+                : c.preLaunchTask
+                  ? `  "${c.name}" — launch: builds (preLaunchTask "${c.preLaunchTask}") + flashes`
+                  : `  "${c.name}" — launch: flashes (no preLaunchTask → project not rebuilt)`
+            );
+          }
+          lines.push('default: build + flash via a launch config; attach only on explicit user request');
         }
       }
       if (lines.length === 0) {
@@ -826,7 +875,7 @@ const tools = [
   {
     name: 'debug_rtt_read',
     description:
-      'Read captured SEGGER RTT output. Draining by default (returns text since the last read); pass peek: true to keep the buffer. CRLF is normalized to LF. Stale-data caveat: target RAM survives debug resets, so right after a re-flash or reset the buffer may still hold unread output of the PREVIOUS firmware — anything already buffered at the main-entry stop predates the current boot and must be ignored (read-and-discard it), not treated as logs of the new firmware.',
+      'Read captured SEGGER RTT output. Draining by default (returns text since the last read); pass peek: true to keep the buffer. CRLF is normalized to LF. While the target is STOPPED every response carries a [target STOPPED] note: halted firmware (e.g. at the main entry point after launch) produces no output — call debug_continue before waiting for logs. Stale-data caveat: target RAM survives debug resets, so right after a re-flash or reset the buffer may still hold unread output of the PREVIOUS firmware — anything already buffered at the main-entry stop predates the current boot and must be ignored (read-and-discard it), not treated as logs of the new firmware.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -845,8 +894,13 @@ const tools = [
           `RTT channel ${channel} is not connected — call debug_rtt_connect (jlink default port ${RTT_DEFAULT_PORT})`
         );
       }
+      // A halted target produces no output — surface the stopped state so the
+      // agent does not sit waiting for logs that will never come.
+      const halted = info.stopped
+        ? `\n[target STOPPED (${info.stopReason || 'unknown'}) — halted targets log nothing; call debug_continue]`
+        : '';
       if (!st.buf.length) {
-        return '(no new RTT data)';
+        return `(no new RTT data)${halted}`;
       }
       let text = st.buf;
       if (!args.peek) {
@@ -858,7 +912,7 @@ const tools = [
       if (!args.raw) {
         text = ansiStrip(text);
       }
-      return text.replace(/\r\n/g, '\n');
+      return text.replace(/\r\n/g, '\n') + halted;
     },
   },
 
@@ -927,8 +981,15 @@ async function dispatch(msg) {
         'the available launch configurations; pass one as configName to debug_start (add the ' +
         'folder argument in multi-root windows), and put per-run overrides (e.g. ipAddress) ' +
         'in the config argument — they win over launch.json values and ${input:*} defaults. ' +
+        'Default workflow: BUILD + FLASH — pick a request:"launch" configuration (its preLaunchTask ' +
+        'rebuilds the project, the adapter programs the target). request:"attach" configurations are ' +
+        'refused by debug_start unless you pass attach:true — use that only when the user explicitly ' +
+        'wants to debug the firmware already on the target without re-flashing. ' +
         'debug_start returns fast; the GDB server and ' +
         'flashing continue in the background — poll debug_status until the session appears. ' +
+        'A fresh launch typically halts at the main entry point (runToEntryPoint): a STOPPED target ' +
+        'executes and logs NOTHING until you call debug_continue — debug_status, debug_start and ' +
+        'debug_rtt_read responses all flag a stopped target, so check before waiting for logs. ' +
         'Then debug_set_breakpoints / debug_continue / debug_pause / debug_step, inspect via ' +
         'debug_stack + debug_variables + debug_evaluate. SEGGER RTT auto-connects for jlink ' +
         'sessions: debug_rtt_read drains target logs (poll it), debug_rtt_write types into a ' +
@@ -1372,4 +1433,4 @@ function deactivate() {
 }
 
 // __test: for out-of-tree harnesses only; VS Code calls activate/deactivate.
-module.exports = { activate, deactivate, __test: { resolveNamedConfig } };
+module.exports = { activate, deactivate, __test: { resolveNamedConfig, launchConfigs } };

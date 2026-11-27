@@ -24,6 +24,10 @@ Zero dependencies — plain Node.js, no npm install.
 - **16 MCP tools**: start/stop sessions, breakpoints (editor-visible, with
   conditions and logpoints), stack, variables, expression evaluation,
   set-variable, pause/continue/step
+- **Build + flash by default**: agents pick `request: "launch"`
+  configurations (their `preLaunchTask` rebuilds the project, the adapter
+  programs the target); attach-only debugging is an explicit opt-in
+  (`debug_start {attach: true}`)
 - **launch.json resolution without popups**: JSONC support, variable
   substitution (`${workspaceFolder}`, `${config:*}`, `${env:*}`,
   `${input:*}` with defaults) — no interactive pickers an agent cannot
@@ -82,9 +86,9 @@ Command Palette.
 
 | Tool | What it does |
 |---|---|
-| `debug_start` | Start a launch.json configuration (`configName`) or an inline config (`config`) |
+| `debug_start` | Start a launch.json configuration (`configName`) or an inline config (`config`); `attach: true` opts into attach-only configs |
 | `debug_stop` | Stop a session |
-| `debug_status` | List sessions and their state (running/stopped + reason, RTT buffers) |
+| `debug_status` | List sessions and their state (running/stopped + reason, RTT buffers); launch configs annotated: build+flash vs attach-only |
 | `debug_pause` | Pause (break into) the target |
 | `debug_continue` | Continue execution |
 | `debug_step` | Step: `over` / `into` / `out` |
@@ -103,7 +107,7 @@ Command Palette.
 
 ```
 debug_start {configName: "Launch (SEGGER JLink)", folder: "/path/to/proj"}
-  → session runs to main, RTT capture starts automatically
+  → session halts at main (STOPPED — logs nothing), RTT capture starts automatically
 debug_set_breakpoints {file: ".../src/main.c", lines: [120]}
 debug_continue
   → breakpoint hit, line highlighted in VS Code
@@ -115,6 +119,17 @@ debug_rtt_write {text: "?\n"} → target CLI answers over RTT
 debug_continue
 debug_stop
 ```
+
+Debugging the firmware already on the target — no rebuild, no re-flash —
+when the user explicitly asks for it:
+
+```
+debug_start {configName: "Attach", attach: true}
+```
+
+(`debug_status` lists every configuration with what it does:
+`launch: builds (preLaunchTask "…") + flashes`, `launch: flashes (no
+preLaunchTask → project not rebuilt)` or `attach only: no build, no flash`.)
 
 ## Configuration
 
@@ -145,6 +160,19 @@ agent's target-CLI input (`» ...`) alongside the agent.
 
 ## Behavior notes
 
+- **Build + flash is the default; attach is opt-in.** A `request: "launch"`
+  configuration rebuilds the project (`preLaunchTask`) and programs the
+  target — that is what agents are steered to. A `request: "attach"`
+  configuration is refused with the list of launch alternatives unless the
+  agent passes `attach: true`, which it should do only when the user
+  explicitly wants to debug the firmware already on the target. A launch
+  config without a `preLaunchTask` produces a note that the target was
+  flashed without rebuilding.
+- **A stopped target is flagged everywhere.** Launches halt at the main
+  entry point (`runToEntryPoint`) and a halted firmware executes and logs
+  nothing — so `debug_start`, `debug_status` and every `debug_rtt_read`
+  response carry an explicit STOPPED note telling the agent to
+  `debug_continue` instead of waiting for logs that will never come.
 - `debug_start` never blocks on the full launch (GDB server + flashing +
   run-to-entry can exceed MCP timeouts); poll `debug_status` for progress
   and errors.
